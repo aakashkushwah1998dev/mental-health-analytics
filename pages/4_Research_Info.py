@@ -75,7 +75,15 @@ if missing_fields:
     st.warning("⚠️ Please complete your profile")
 
     with st.form("update_profile"):
-        dob_input = st.date_input("Date of Birth") if "dob" in missing_fields else dob
+        dob_input = (
+            st.date_input(
+                "Date of Birth",
+                min_value=date(1900, 1, 1),
+                max_value=date.today(),
+                value=date(2000, 1, 1)
+            )
+            if "dob" in missing_fields else dob
+        )
 
         gender_input = (
             st.selectbox("Gender", ["Male", "Female", "Other"])
