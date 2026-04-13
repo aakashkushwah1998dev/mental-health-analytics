@@ -62,6 +62,14 @@ else:
 
     st.success(f"Welcome back, **{st.session_state.username}** 👋")
 
+    # ------------------ LOGOUT BUTTON ------------------
+    if st.button("🚪 Logout"):
+        st.session_state.logged_in = False
+        st.session_state.user_id = None
+        st.session_state.username = None
+        st.success("Logged out successfully!")
+        st.switch_page("pages/1_Login.py")
+
     st.markdown("### 🚀 Go to Dashboard")
 
     if st.button("📊 Open Dashboard"):
