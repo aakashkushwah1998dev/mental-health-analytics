@@ -1,0 +1,7 @@
+streamlit
+pandas
+numpy
+matplotlib
+psycopg2-binary
+openpyxl
+scikit-learn

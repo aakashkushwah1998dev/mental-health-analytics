@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Streamlit secrets — NEVER commit this
+.streamlit/secrets.toml
+
+# Virtual environment
+venv/
+env/
+.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Data files (optional - remove if you want them tracked)
+data/*.xlsx
