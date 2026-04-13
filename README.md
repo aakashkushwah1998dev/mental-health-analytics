@@ -61,3 +61,33 @@ This system allows users to:
 ---
 
 ## 📂 Project Structure
+
+Mental-Health-Analytics/
+│
+├── app.py                         # Main entry point (landing + routing)
+│
+├── pages/                         # Streamlit multipage UI
+│   ├── 1_Login.py                 # Login & registration
+│   ├── 2_Dashboard.py             # Analytics dashboard
+│   ├── 3_Questionnaire.py         # Assessment engine
+│   ├── 4_Research_Info.py         # User profile & research info
+│
+├── database/                      # Database layer
+│   └── connection.py              # PostgreSQL connection (via secrets)
+│
+├── auth/                          # Authentication logic
+│   └── auth_service.py            # Login + register service
+│
+├── scripts/                       # Utility & backend scripts
+│   ├── LoadQuestionsToDB.py       # Load questions from Excel
+│   ├── Risk_Prediction.py         # ML model for risk prediction
+│   ├── test_connection.py         # DB connection testing
+│
+├── data/                          # Dataset files
+│   └── wellness_questions.xlsx    # Questionnaire dataset
+│
+├── .streamlit/                    # Streamlit configuration
+│   └── secrets.toml               # DB credentials (DO NOT COMMIT)
+│
+├── requirements.txt               # Python dependencies
+├── README.md                      # Project documentation
