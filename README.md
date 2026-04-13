@@ -8,42 +8,42 @@ An AI-powered Mental Health Analytics Platform that helps users assess, track, a
 
 This system allows users to:
 
-- 🧾 Take scientifically inspired mental health assessments
-- 📊 View personalized dashboards and trends
-- 📈 Track emotional and psychological patterns over time
-- 🤖 Generate insights using data science and ML models
+- 🧾 Take scientifically inspired mental health assessments  
+- 📊 View personalized dashboards and trends  
+- 📈 Track emotional and psychological patterns over time  
+- 🤖 Generate insights using data science and ML models  
 
 ---
 
 ## 🎯 Key Features
 
 ### 🔐 Authentication System
-- Login & Registration
-- Session-based authentication
-- Secure user handling
+- Login & Registration  
+- Session-based authentication  
+- Secure user handling  
 
 ### 📝 Assessment Engine
-- Dynamic questionnaire (PHQ9, GAD7, etc.)
-- Response storage
-- Score calculation per category
+- Dynamic questionnaire (PHQ9, GAD7, etc.)  
+- Response storage  
+- Score calculation per category  
 
 ### 📊 Dashboard
-- Category-wise score visualization
-- Mental health trend analysis
-- Risk-level interpretation
+- Category-wise score visualization  
+- Mental health trend analysis  
+- Risk-level interpretation  
 
 ### 👤 User Profile
-- Dynamic profile completion
-- Date of Birth → Age calculation
-- Personal data management
+- Dynamic profile completion  
+- Date of Birth → Age calculation  
+- Personal data management  
 
 ### 💡 Recommendation Engine
-- Personalized mental wellness suggestions
-- Based on score severity
+- Personalized mental wellness suggestions  
+- Based on score severity  
 
 ### 🤖 AI Risk Prediction (Advanced)
-- Logistic Regression model
-- Predicts mental health risk probability
+- Logistic Regression model  
+- Predicts mental health risk probability  
 
 ---
 
@@ -62,6 +62,7 @@ This system allows users to:
 
 ## 📂 Project Structure
 
+```bash
 Mental-Health-Analytics/
 │
 ├── app.py                         # Main entry point (landing + routing)
