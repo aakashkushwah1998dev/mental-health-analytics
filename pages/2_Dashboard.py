@@ -296,28 +296,30 @@ colors = [
     for _, row in df_scores.iterrows()
 ]
 
+# ── KEY FIX: use a minimum display height of 0.4 for zero scores ──
+display_values = [max(v, 0.4) for v in df_scores["score_value"]]
+
 bars = ax.bar(
     df_scores["category_name"],
-    df_scores["score_value"],
+    display_values,           # ← visual height (never truly 0)
     color=colors,
     edgecolor="white",
     linewidth=0.8,
     width=0.5
 )
 
-# Label each bar with its value
-for bar, val in zip(bars, df_scores["score_value"]):
+# Label each bar with the REAL score value (not the padded display value)
+for bar, real_val in zip(bars, df_scores["score_value"]):
     ax.text(
         bar.get_x() + bar.get_width() / 2,
-        bar.get_height() + 0.3,
-        str(val),
+        bar.get_height() + 0.2,
+        str(real_val),        # ← always shows true score
         ha="center",
         va="bottom",
         fontsize=11,
         fontweight="bold"
     )
 
-# Always show y-axis from 0 to at least 5 so chart is never blank
 max_val = df_scores["score_value"].max()
 ax.set_ylim(0, max(max_val + 3, 6))
 ax.set_ylabel("Score", fontsize=11)
