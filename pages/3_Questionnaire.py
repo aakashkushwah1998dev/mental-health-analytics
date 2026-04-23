@@ -15,6 +15,7 @@ if not st.session_state.get("logged_in"):
     st.stop()
 
 user_id = st.session_state.get("user_id")
+username = st.session_state.get("username")
 
 st.title("📝 Mental Wellness Questionnaire")
 
@@ -88,6 +89,22 @@ for category in df["category_name"].unique():
 st.markdown("---")
 
 if st.button("✅ Submit Assessment"):
+    # Ensure session user_id exists in DB (common after DB resets/migrations).
+    cursor.execute("SELECT user_id FROM users WHERE user_id = %s", (user_id,))
+    user_row = cursor.fetchone()
+    if user_row is None and username:
+        cursor.execute("SELECT user_id FROM users WHERE username = %s", (username,))
+        user_row = cursor.fetchone()
+        if user_row:
+            user_id = user_row[0]
+            st.session_state["user_id"] = user_id
+
+    if user_row is None:
+        st.error("Your account session is out of sync with the database. Please log in again.")
+        cursor.close()
+        conn.close()
+        st.stop()
+
     cursor.execute(
         "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM assessment_attempts WHERE user_id = %s",
         (user_id,)
