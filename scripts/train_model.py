@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+from datetime import datetime, timezone
 
 import joblib
 import pandas as pd
@@ -18,6 +19,43 @@ MOOD_ENCODING = {
     "Anxious": 3,
     "Low": 4,
 }
+
+
+def write_ml_update(accuracy: float, training_rows: int, model_path: Path) -> None:
+    update_path = Path(__file__).resolve().parents[1] / "ML_UPDATE.md"
+    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    content = f"""# ML Learning Update
+
+## Auto-Updated Training Snapshot
+
+- Last trained at: `{updated_at}`
+- Model type: `RandomForestClassifier`
+- Training script: `scripts/train_model.py`
+- Saved model path: `{model_path}`
+- Training rows: `{training_rows}`
+- Accuracy: `{accuracy:.4f}`
+
+## Features Used by Model
+
+- `phq9`
+- `gad7`
+- `rosenberg`
+- `bigfive`
+- `mood` (encoded: Calm=0, Neutral=1, Stressed=2, Anxious=3, Low=4)
+- `attempts`
+- `trend` (current total score - previous total score)
+
+## Label Definition
+
+- `risk_label = 1` if `phq9 >= 10`
+- `risk_label = 0` otherwise
+
+## Inference Endpoint
+
+- `POST /predict` in `api/main.py`
+- Output: `risk_probability`, `risk_level`
+"""
+    update_path.write_text(content, encoding="utf-8")
 
 
 def main() -> None:
@@ -100,9 +138,11 @@ def main() -> None:
     model_dir.mkdir(parents=True, exist_ok=True)
     model_path = model_dir / "risk_model.pkl"
     joblib.dump(model, model_path)
+    write_ml_update(accuracy=accuracy, training_rows=len(feature_df), model_path=model_path)
 
     print(f"Model saved to: {model_path}")
     print(f"Accuracy: {accuracy:.4f}")
+    print("ML update report refreshed: ML_UPDATE.md")
 
 
 if __name__ == "__main__":
