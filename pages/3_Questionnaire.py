@@ -33,7 +33,8 @@ cursor = conn.cursor()
 # LOAD QUESTIONS
 # -------------------------------------------------------------
 df = pd.read_sql("""
-    SELECT q.question_id, q.question_text, c.category_name, c.category_id
+    SELECT q.question_id, q.question_text, q.is_reversed,
+           c.category_name, c.category_id
     FROM questions q
     JOIN categories c ON q.category_id = c.category_id
     ORDER BY c.category_name, q.question_id
@@ -82,13 +83,7 @@ for category in df["category_name"].unique():
 st.markdown("---")
 
 if st.button("✅ Submit Assessment"):
-
-    # ----------------------------------------------------------
-    # CLEAR OLD RESPONSES AND SCORES FOR THIS USER
-    # ----------------------------------------------------------
-    cursor.execute("DELETE FROM responses WHERE user_id = %s", (user_id,))
-    cursor.execute("DELETE FROM scores WHERE user_id = %s", (user_id,))
-
+    
     # ----------------------------------------------------------
     # SAVE RAW RESPONSES
     # ----------------------------------------------------------
@@ -106,7 +101,14 @@ if st.button("✅ Submit Assessment"):
     for category in df["category_name"].unique():
 
         category_df = df[df["category_name"] == category]
-        total_score = sum(responses.get(row["question_id"], 0) for _, row in category_df.iterrows())
+        total_score = 0
+        for _, row in category_df.iterrows():
+            raw_value = responses.get(row["question_id"], 0)
+            if row["is_reversed"]:
+                score_value = 3 - raw_value
+            else:
+                score_value = raw_value
+            total_score += score_value
 
         # Get category_id
         cursor.execute(

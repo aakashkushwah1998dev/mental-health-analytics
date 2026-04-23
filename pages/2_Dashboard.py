@@ -19,6 +19,10 @@ user_id  = st.session_state.get("user_id")
 username = st.session_state.get("username")
 
 st.title("📊 Mental Wellness Dashboard")
+st.info(
+    "These scores support self-awareness only.\n"
+    "This is not a medical diagnosis."
+)
 
 # -------------------------------------------------------------
 # DATABASE CONNECTION
@@ -90,7 +94,7 @@ def interpret_score(category: str, score: int) -> tuple:
 # RECOMMENDATIONS ENGINE
 # Real, specific, actionable activities per category + level
 # =============================================================
-def get_recommendations(category: str, level: str) -> list:
+def get_recommendations(category: str, level: str, mood: str | None = None) -> list:
     """
     Returns a list of specific, actionable recommendations
     based on category and severity level.
@@ -231,6 +235,9 @@ def get_recommendations(category: str, level: str) -> list:
         "🩺 Consider speaking to a mental health professional if symptoms persist.",
     ])
 
+    if cat == "PHQ9" and lvl in {"MODERATE", "MODERATELY SEVERE", "SEVERE"} and (mood or "").strip().lower() == "stressed":
+        level_recs = ["Try box breathing: 4 seconds in, hold 4, out 4"] + level_recs
+
     return level_recs
 
 
@@ -258,13 +265,30 @@ if response_count == 0:
 # -------------------------------------------------------------
 st.subheader(f"Welcome back, {username} 👋")
 
-# ── Load Scores ──────────────────────────────────────────────
+# ── Load Assessment Attempts ─────────────────────────────────
+df_attempts = pd.read_sql("""
+    SELECT attempt_id, created_at, mood_label
+    FROM assessment_attempts
+    WHERE user_id = %s
+    ORDER BY created_at
+""", conn, params=(user_id,))
+
+if df_attempts.empty:
+    st.warning("No assessment attempts found. Please take the assessment.")
+    st.stop()
+
+df_attempts["created_at"] = pd.to_datetime(df_attempts["created_at"])
+latest_attempt = df_attempts.iloc[-1]
+latest_attempt_id = int(latest_attempt["attempt_id"])
+latest_mood = latest_attempt["mood_label"]
+
+# ── Load Latest Attempt Scores (default view) ────────────────
 df_scores = pd.read_sql("""
     SELECT c.category_name, s.score_value
     FROM scores s
     JOIN categories c ON s.category_id = c.category_id
-    WHERE s.user_id = %s
-""", conn, params=(user_id,))
+    WHERE s.user_id = %s AND s.attempt_id = %s
+""", conn, params=(user_id, latest_attempt_id))
 
 if df_scores.empty:
     st.warning("No scores found. Please take the assessment.")
@@ -277,6 +301,61 @@ df_scores["Level"]  = df_scores.apply(
 df_scores["Status"] = df_scores.apply(
     lambda x: interpret_score(x["category_name"], x["score_value"])[1], axis=1
 )
+
+# ── Summary Card Data ────────────────────────────────────────
+severity_rank = {
+    "MINIMAL": 1,
+    "MILD": 2,
+    "NORMAL SELF-ESTEEM": 2,
+    "MODERATE": 3,
+    "LOW SELF-ESTEEM": 3,
+    "MODERATELY SEVERE": 4,
+    "VERY LOW SELF-ESTEEM": 4,
+    "SEVERE": 5,
+}
+
+levels_for_latest = [
+    interpret_score(row["category_name"], row["score_value"])[0]
+    for _, row in df_scores.iterrows()
+]
+overall_risk = max(
+    levels_for_latest,
+    key=lambda x: severity_rank.get(x.upper(), 0)
+) if levels_for_latest else "N/A"
+
+df_attempt_totals = pd.read_sql("""
+    SELECT a.attempt_id, a.created_at, COALESCE(SUM(s.score_value), 0) AS total_score
+    FROM assessment_attempts a
+    LEFT JOIN scores s ON s.attempt_id = a.attempt_id
+    WHERE a.user_id = %s
+    GROUP BY a.attempt_id, a.created_at
+    ORDER BY a.created_at
+""", conn, params=(user_id,))
+
+trend_label = "Stable"
+if len(df_attempt_totals) >= 2:
+    previous_total = df_attempt_totals.iloc[-2]["total_score"]
+    latest_total = df_attempt_totals.iloc[-1]["total_score"]
+    if latest_total < previous_total:
+        trend_label = "Improving"
+    elif latest_total > previous_total:
+        trend_label = "Declining"
+    else:
+        trend_label = "Stable"
+
+# =============================================================
+# SUMMARY CARD
+# =============================================================
+st.subheader("🧾 Assessment Summary")
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Last Assessment", latest_attempt["created_at"].strftime("%Y-%m-%d %H:%M"))
+with col2:
+    st.metric("Total Assessments", int(len(df_attempts)))
+with col3:
+    st.metric("Overall Risk Level", overall_risk)
+with col4:
+    st.metric("Trend", trend_label)
 
 # =============================================================
 # SECTION 1 — SCORE TABLE
@@ -332,24 +411,31 @@ st.pyplot(fig)
 # =============================================================
 # SECTION 3 — TRENDS OVER TIME
 # =============================================================
+show_history = st.toggle("View Full History")
+
 df_trend = pd.read_sql("""
-    SELECT c.category_name, s.score_value, s.created_at
+    SELECT c.category_name, s.score_value, a.created_at, a.attempt_id
     FROM scores s
     JOIN categories c ON s.category_id = c.category_id
+    JOIN assessment_attempts a ON s.attempt_id = a.attempt_id
     WHERE s.user_id = %s
-    ORDER BY s.created_at
+    ORDER BY a.created_at, a.attempt_id
 """, conn, params=(user_id,))
 
-if not df_trend.empty and df_trend["created_at"].nunique() > 1:
+if show_history and not df_trend.empty and df_trend["attempt_id"].nunique() > 1:
     st.subheader("📉 Mental Health Trends Over Time")
     df_trend["created_at"] = pd.to_datetime(df_trend["created_at"])
+    df_trend["attempt_label"] = (
+        df_trend["created_at"].dt.strftime("%Y-%m-%d %H:%M")
+        + " (#" + df_trend["attempt_id"].astype(str) + ")"
+    )
     pivot_df = df_trend.pivot(
-        index="created_at",
+        index="attempt_label",
         columns="category_name",
         values="score_value"
     )
     st.line_chart(pivot_df)
-else:
+elif show_history:
     st.info("📉 Trends will appear after you complete more than one assessment over time.")
 
 # =============================================================
@@ -366,7 +452,7 @@ for _, row in df_scores.iterrows():
 
     with st.expander(f"{emoji} {category} — {level} (Score: {score})", expanded=True):
 
-        recommendations = get_recommendations(category, level)
+        recommendations = get_recommendations(category, level, latest_mood)
 
         for rec in recommendations:
             st.markdown(f"- {rec}")
