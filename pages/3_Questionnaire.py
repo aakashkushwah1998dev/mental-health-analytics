@@ -55,6 +55,11 @@ options = {
 }
 
 responses = {}
+mood_label = st.selectbox(
+    "How are you feeling right now?",
+    ["Calm", "Neutral", "Stressed", "Anxious", "Low"],
+    index=1
+)
 
 # -------------------------------------------------------------
 # DISPLAY QUESTIONS GROUPED BY CATEGORY
@@ -83,15 +88,30 @@ for category in df["category_name"].unique():
 st.markdown("---")
 
 if st.button("✅ Submit Assessment"):
-    
+    cursor.execute(
+        "SELECT COALESCE(MAX(attempt_number), 0) + 1 FROM assessment_attempts WHERE user_id = %s",
+        (user_id,)
+    )
+    attempt_number = cursor.fetchone()[0]
+
+    cursor.execute(
+        """
+        INSERT INTO assessment_attempts (user_id, attempt_number, mood_label)
+        VALUES (%s, %s, %s)
+        RETURNING attempt_id
+        """,
+        (user_id, attempt_number, mood_label)
+    )
+    attempt_id = cursor.fetchone()[0]
+
     # ----------------------------------------------------------
     # SAVE RAW RESPONSES
     # ----------------------------------------------------------
     for q_id, value in responses.items():
         cursor.execute("""
-            INSERT INTO responses (user_id, question_id, answer_value)
-            VALUES (%s, %s, %s)
-        """, (user_id, q_id, value))
+            INSERT INTO responses (user_id, question_id, answer_value, attempt_id)
+            VALUES (%s, %s, %s, %s)
+        """, (user_id, q_id, value, attempt_id))
 
     conn.commit()
 
@@ -121,9 +141,9 @@ if st.button("✅ Submit Assessment"):
         if result:
             category_id = result[0]
             cursor.execute("""
-                INSERT INTO scores (user_id, category_id, score_value)
-                VALUES (%s, %s, %s)
-            """, (user_id, category_id, total_score))
+                INSERT INTO scores (user_id, category_id, score_value, attempt_id)
+                VALUES (%s, %s, %s, %s)
+            """, (user_id, category_id, total_score, attempt_id))
 
     conn.commit()
     cursor.close()

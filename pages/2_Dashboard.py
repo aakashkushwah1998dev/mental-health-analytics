@@ -273,22 +273,45 @@ df_attempts = pd.read_sql("""
     ORDER BY created_at
 """, conn, params=(user_id,))
 
-if df_attempts.empty:
-    st.warning("No assessment attempts found. Please take the assessment.")
-    st.stop()
+latest_mood = None
+latest_attempt_display = "N/A"
+total_assessments = 0
 
-df_attempts["created_at"] = pd.to_datetime(df_attempts["created_at"])
-latest_attempt = df_attempts.iloc[-1]
-latest_attempt_id = int(latest_attempt["attempt_id"])
-latest_mood = latest_attempt["mood_label"]
+if not df_attempts.empty:
+    df_attempts["created_at"] = pd.to_datetime(df_attempts["created_at"])
+    latest_attempt = df_attempts.iloc[-1]
+    latest_attempt_id = int(latest_attempt["attempt_id"])
+    latest_mood = latest_attempt["mood_label"]
+    latest_attempt_display = latest_attempt["created_at"].strftime("%Y-%m-%d %H:%M")
+    total_assessments = int(len(df_attempts))
 
-# ── Load Latest Attempt Scores (default view) ────────────────
-df_scores = pd.read_sql("""
-    SELECT c.category_name, s.score_value
-    FROM scores s
-    JOIN categories c ON s.category_id = c.category_id
-    WHERE s.user_id = %s AND s.attempt_id = %s
-""", conn, params=(user_id, latest_attempt_id))
+    # ── Load Latest Attempt Scores (default view) ────────────────
+    df_scores = pd.read_sql("""
+        SELECT c.category_name, s.score_value
+        FROM scores s
+        JOIN categories c ON s.category_id = c.category_id
+        WHERE s.user_id = %s AND s.attempt_id = %s
+    """, conn, params=(user_id, latest_attempt_id))
+else:
+    # Legacy fallback for rows created before attempt tracking
+    df_scores = pd.read_sql("""
+        WITH latest_score_time AS (
+            SELECT MAX(created_at) AS max_created_at
+            FROM scores
+            WHERE user_id = %s
+        )
+        SELECT c.category_name, s.score_value
+        FROM scores s
+        JOIN categories c ON s.category_id = c.category_id
+        JOIN latest_score_time lst ON s.created_at = lst.max_created_at
+        WHERE s.user_id = %s
+    """, conn, params=(user_id, user_id))
+    latest_attempt_display = "Legacy score snapshot"
+    total_assessments = int(pd.read_sql(
+        "SELECT COUNT(DISTINCT created_at) AS attempts FROM scores WHERE user_id = %s",
+        conn,
+        params=(user_id,)
+    ).iloc[0]["attempts"])
 
 if df_scores.empty:
     st.warning("No scores found. Please take the assessment.")
@@ -323,14 +346,23 @@ overall_risk = max(
     key=lambda x: severity_rank.get(x.upper(), 0)
 ) if levels_for_latest else "N/A"
 
-df_attempt_totals = pd.read_sql("""
-    SELECT a.attempt_id, a.created_at, COALESCE(SUM(s.score_value), 0) AS total_score
-    FROM assessment_attempts a
-    LEFT JOIN scores s ON s.attempt_id = a.attempt_id
-    WHERE a.user_id = %s
-    GROUP BY a.attempt_id, a.created_at
-    ORDER BY a.created_at
-""", conn, params=(user_id,))
+if not df_attempts.empty:
+    df_attempt_totals = pd.read_sql("""
+        SELECT a.attempt_id, a.created_at, COALESCE(SUM(s.score_value), 0) AS total_score
+        FROM assessment_attempts a
+        LEFT JOIN scores s ON s.attempt_id = a.attempt_id
+        WHERE a.user_id = %s
+        GROUP BY a.attempt_id, a.created_at
+        ORDER BY a.created_at
+    """, conn, params=(user_id,))
+else:
+    df_attempt_totals = pd.read_sql("""
+        SELECT created_at, SUM(score_value) AS total_score
+        FROM scores
+        WHERE user_id = %s
+        GROUP BY created_at
+        ORDER BY created_at
+    """, conn, params=(user_id,))
 
 trend_label = "Stable"
 if len(df_attempt_totals) >= 2:
@@ -349,9 +381,9 @@ if len(df_attempt_totals) >= 2:
 st.subheader("🧾 Assessment Summary")
 col1, col2, col3, col4 = st.columns(4)
 with col1:
-    st.metric("Last Assessment", latest_attempt["created_at"].strftime("%Y-%m-%d %H:%M"))
+    st.metric("Last Assessment", latest_attempt_display)
 with col2:
-    st.metric("Total Assessments", int(len(df_attempts)))
+    st.metric("Total Assessments", total_assessments)
 with col3:
     st.metric("Overall Risk Level", overall_risk)
 with col4:
@@ -414,21 +446,22 @@ st.pyplot(fig)
 show_history = st.toggle("View Full History")
 
 df_trend = pd.read_sql("""
-    SELECT c.category_name, s.score_value, a.created_at, a.attempt_id
+    SELECT c.category_name, s.score_value, s.created_at, s.attempt_id
     FROM scores s
     JOIN categories c ON s.category_id = c.category_id
-    JOIN assessment_attempts a ON s.attempt_id = a.attempt_id
     WHERE s.user_id = %s
-    ORDER BY a.created_at, a.attempt_id
+    ORDER BY s.created_at, s.attempt_id
 """, conn, params=(user_id,))
 
-if show_history and not df_trend.empty and df_trend["attempt_id"].nunique() > 1:
+if show_history and not df_trend.empty and df_trend["created_at"].nunique() > 1:
     st.subheader("📉 Mental Health Trends Over Time")
     df_trend["created_at"] = pd.to_datetime(df_trend["created_at"])
-    df_trend["attempt_label"] = (
-        df_trend["created_at"].dt.strftime("%Y-%m-%d %H:%M")
-        + " (#" + df_trend["attempt_id"].astype(str) + ")"
-    )
+    df_trend["attempt_label"] = df_trend["created_at"].dt.strftime("%Y-%m-%d %H:%M")
+    if df_trend["attempt_id"].notna().any():
+        df_trend["attempt_label"] = (
+            df_trend["attempt_label"]
+            + " (#" + df_trend["attempt_id"].fillna(0).astype(int).astype(str) + ")"
+        )
     pivot_df = df_trend.pivot(
         index="attempt_label",
         columns="category_name",
