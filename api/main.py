@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import tempfile
 
 import joblib
 import numpy as np
@@ -8,7 +10,8 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Mental Health Risk API")
 
-MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "risk_model.pkl"
+PROJECT_MODEL_PATH = Path(__file__).resolve().parents[1] / "models" / "risk_model.pkl"
+TMP_MODEL_PATH = Path(tempfile.gettempdir()) / "mental-health-analytics" / "models" / "risk_model.pkl"
 MOOD_ENCODING = {
     "Calm": 0,
     "Neutral": 1,
@@ -20,16 +23,37 @@ MOOD_ENCODING = {
 model = None
 
 
+def resolve_model_path() -> Path | None:
+    env_model_path = os.getenv("MODEL_PATH")
+    env_model_dir = os.getenv("MODEL_DIR")
+
+    candidates = []
+    if env_model_path:
+        candidates.append(Path(env_model_path))
+    if env_model_dir:
+        candidates.append(Path(env_model_dir) / "risk_model.pkl")
+    candidates.extend([PROJECT_MODEL_PATH, TMP_MODEL_PATH])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def get_model():
     global model
     if model is not None:
         return model
-    if not MODEL_PATH.exists():
+    model_path = resolve_model_path()
+    if model_path is None:
         raise HTTPException(
             status_code=503,
-            detail="Model file is missing. Train the model first at models/risk_model.pkl",
+            detail=(
+                "Model file is missing. Train the model first. "
+                "Checked MODEL_PATH/MODEL_DIR, project models path, and /tmp fallback."
+            ),
         )
-    model = joblib.load(MODEL_PATH)
+    model = joblib.load(model_path)
     return model
 
 

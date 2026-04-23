@@ -3,6 +3,8 @@ import sys
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
+import tempfile
 
 import joblib
 import pandas as pd
@@ -26,6 +28,24 @@ MOOD_ENCODING = {
 def build_schema_hash(feature_columns: list[str]) -> str:
     joined = "|".join(feature_columns)
     return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def resolve_writable_model_dir() -> Path:
+    project_root = Path(__file__).resolve().parents[1]
+    preferred = Path(os.getenv("MODEL_DIR", str(project_root / "models")))
+    fallback = Path(tempfile.gettempdir()) / "mental-health-analytics" / "models"
+
+    for candidate in [preferred, fallback]:
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            probe = candidate / ".write_probe"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            return candidate
+        except Exception:
+            continue
+
+    raise RuntimeError("No writable directory available for model artifacts.")
 
 
 def write_model_metadata(
@@ -62,7 +82,11 @@ def write_ml_update(
     cm: list[list[int]],
     schema_hash: str,
 ) -> None:
-    update_path = Path(__file__).resolve().parents[1] / "ML_UPDATE.md"
+    configured_update_path = os.getenv("ML_UPDATE_PATH")
+    if configured_update_path:
+        update_path = Path(configured_update_path)
+    else:
+        update_path = Path(__file__).resolve().parents[1] / "ML_UPDATE.md"
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     content = f"""# ML Learning Update
 
@@ -105,7 +129,11 @@ def write_ml_update(
 - `POST /predict` in `api/main.py`
 - Output: `risk_probability`, `risk_level`
 """
-    update_path.write_text(content, encoding="utf-8")
+    try:
+        update_path.write_text(content, encoding="utf-8")
+    except Exception:
+        fallback_update_path = resolve_writable_model_dir().parent / "ML_UPDATE.md"
+        fallback_update_path.write_text(content, encoding="utf-8")
 
 
 def main() -> None:
@@ -189,8 +217,7 @@ def main() -> None:
     cv_mean = float(cv_scores.mean())
     cv_std = float(cv_scores.std())
 
-    model_dir = Path(__file__).resolve().parents[1] / "models"
-    model_dir.mkdir(parents=True, exist_ok=True)
+    model_dir = resolve_writable_model_dir()
     model_path = model_dir / "risk_model.pkl"
     joblib.dump(model, model_path)
 
