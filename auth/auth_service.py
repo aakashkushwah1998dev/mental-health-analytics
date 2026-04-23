@@ -5,6 +5,7 @@
 # =============================================================
 
 import streamlit as st
+import bcrypt
 from database.connection import get_connection
 
 
@@ -46,7 +47,7 @@ def login_or_register(username: str, password: str) -> str:
 
         user_id, stored_password = user
 
-        if password == stored_password:
+        if bcrypt.checkpw(password.encode("utf-8"), stored_password.encode("utf-8")):
 
             st.session_state["logged_in"] = True
             st.session_state["user_id"] = user_id
@@ -67,9 +68,11 @@ def login_or_register(username: str, password: str) -> str:
     # ----------------------------------------------------------
     else:
 
+        hashed_password = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
         cursor.execute(
             "INSERT INTO users (username, password) VALUES (%s, %s) RETURNING user_id",
-            (username, password)
+            (username, hashed_password)
         )
 
         new_user_id = cursor.fetchone()[0]
