@@ -4,6 +4,29 @@
 # =============================================================
 
 import streamlit as st
+import os
+import subprocess
+
+
+def get_build_version() -> str:
+    env_sha = (
+        os.getenv("STREAMLIT_GIT_COMMIT_SHA")
+        or os.getenv("GITHUB_SHA")
+        or os.getenv("RENDER_GIT_COMMIT")
+    )
+    if env_sha:
+        return env_sha[:7]
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip() or "unknown"
+    except Exception:
+        return "unknown"
 
 # -------------------------------------------------------------
 # PAGE CONFIGURATION (must be first Streamlit command)
@@ -94,3 +117,4 @@ else:
 # -------------------------------------------------------------
 st.markdown("---")
 st.caption("Built with ❤️ by Aakash Kushwah")
+st.caption(f"Build version: `{get_build_version()}`")
