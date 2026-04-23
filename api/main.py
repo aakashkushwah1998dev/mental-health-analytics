@@ -17,7 +17,20 @@ MOOD_ENCODING = {
     "Low": 4,
 }
 
-model = joblib.load(MODEL_PATH)
+model = None
+
+
+def get_model():
+    global model
+    if model is not None:
+        return model
+    if not MODEL_PATH.exists():
+        raise HTTPException(
+            status_code=503,
+            detail="Model file is missing. Train the model first at models/risk_model.pkl",
+        )
+    model = joblib.load(MODEL_PATH)
+    return model
 
 
 class PredictRequest(BaseModel):
@@ -57,7 +70,8 @@ def predict(payload: PredictRequest) -> PredictResponse:
         dtype=float,
     )
 
-    risk_probability = float(model.predict_proba(features)[0][1])
+    loaded_model = get_model()
+    risk_probability = float(loaded_model.predict_proba(features)[0][1])
 
     if risk_probability < 0.4:
         risk_level = "Low"

@@ -1,12 +1,14 @@
 from pathlib import Path
 import sys
 from datetime import datetime, timezone
+import hashlib
+import json
 
 import joblib
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
-from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+from sklearn.model_selection import train_test_split, cross_val_score
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 from database.connection import get_connection  # noqa: E402
@@ -21,7 +23,45 @@ MOOD_ENCODING = {
 }
 
 
-def write_ml_update(accuracy: float, training_rows: int, model_path: Path) -> None:
+def build_schema_hash(feature_columns: list[str]) -> str:
+    joined = "|".join(feature_columns)
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def write_model_metadata(
+    model_dir: Path,
+    model_path: Path,
+    training_rows: int,
+    feature_columns: list[str],
+    accuracy: float,
+    cv_mean: float,
+    cv_std: float,
+) -> Path:
+    metadata_path = model_dir / "model_metadata.json"
+    payload = {
+        "model_type": "RandomForestClassifier",
+        "trained_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "model_path": str(model_path),
+        "training_rows": int(training_rows),
+        "feature_columns": feature_columns,
+        "schema_hash": build_schema_hash(feature_columns),
+        "accuracy": round(float(accuracy), 4),
+        "cv_mean_accuracy": round(float(cv_mean), 4),
+        "cv_std_accuracy": round(float(cv_std), 4),
+    }
+    metadata_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return metadata_path
+
+
+def write_ml_update(
+    accuracy: float,
+    training_rows: int,
+    model_path: Path,
+    cv_mean: float,
+    cv_std: float,
+    cm: list[list[int]],
+    schema_hash: str,
+) -> None:
     update_path = Path(__file__).resolve().parents[1] / "ML_UPDATE.md"
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     content = f"""# ML Learning Update
@@ -34,6 +74,16 @@ def write_ml_update(accuracy: float, training_rows: int, model_path: Path) -> No
 - Saved model path: `{model_path}`
 - Training rows: `{training_rows}`
 - Accuracy: `{accuracy:.4f}`
+- Cross-validation (5-fold) mean accuracy: `{cv_mean:.4f}`
+- Cross-validation (5-fold) std: `{cv_std:.4f}`
+- Schema hash: `{schema_hash}`
+
+## Confusion Matrix (Test Set)
+
+```text
+{cm[0][0]}  {cm[0][1]}
+{cm[1][0]}  {cm[1][1]}
+```
 
 ## Features Used by Model
 
@@ -116,6 +166,7 @@ def main() -> None:
 
     X = feature_df[["phq9", "gad7", "rosenberg", "bigfive", "mood", "attempts", "trend"]]
     y = feature_df["risk_label"]
+    feature_columns = list(X.columns)
 
     if y.nunique() < 2:
         raise RuntimeError("Need both risk classes to train a classifier.")
@@ -133,15 +184,52 @@ def main() -> None:
 
     predictions = model.predict(X_test)
     accuracy = accuracy_score(y_test, predictions)
+    cm = confusion_matrix(y_test, predictions, labels=[0, 1]).tolist()
+    cv_scores = cross_val_score(model, X, y, cv=5, scoring="accuracy")
+    cv_mean = float(cv_scores.mean())
+    cv_std = float(cv_scores.std())
 
     model_dir = Path(__file__).resolve().parents[1] / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
     model_path = model_dir / "risk_model.pkl"
     joblib.dump(model, model_path)
-    write_ml_update(accuracy=accuracy, training_rows=len(feature_df), model_path=model_path)
+
+    importance_path = model_dir / "feature_importances.csv"
+    pd.DataFrame(
+        {
+            "feature": feature_columns,
+            "importance": model.feature_importances_,
+        }
+    ).sort_values("importance", ascending=False).to_csv(importance_path, index=False)
+
+    metadata_path = write_model_metadata(
+        model_dir=model_dir,
+        model_path=model_path,
+        training_rows=len(feature_df),
+        feature_columns=feature_columns,
+        accuracy=accuracy,
+        cv_mean=cv_mean,
+        cv_std=cv_std,
+    )
+
+    schema_hash = build_schema_hash(feature_columns)
+    write_ml_update(
+        accuracy=accuracy,
+        training_rows=len(feature_df),
+        model_path=model_path,
+        cv_mean=cv_mean,
+        cv_std=cv_std,
+        cm=cm,
+        schema_hash=schema_hash,
+    )
 
     print(f"Model saved to: {model_path}")
     print(f"Accuracy: {accuracy:.4f}")
+    print(f"Cross-val mean accuracy (5-fold): {cv_mean:.4f}")
+    print(f"Cross-val std accuracy (5-fold): {cv_std:.4f}")
+    print(f"Confusion matrix (test): {cm}")
+    print(f"Feature importances saved to: {importance_path}")
+    print(f"Model metadata saved to: {metadata_path}")
     print("ML update report refreshed: ML_UPDATE.md")
 
 
