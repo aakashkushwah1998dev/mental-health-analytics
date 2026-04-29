@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migration
+  namespace: mental-health
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: postgres:16
+          envFrom:
+            - configMapRef:
+                name: mental-health-config
+            - secretRef:
+                name: mental-health-secrets
+          command:
+            - /bin/sh
+            - -c
+            - |
+              export PGPASSWORD="$DB_PASSWORD"
+              psql \
+                --host="$DB_HOST" \
+                --port="$DB_PORT" \
+                --username="$DB_USER" \
+                --dbname="$DB_NAME" \
+                -f /sql/001_initial_schema.sql
+          volumeMounts:
+            - name: schema
+              mountPath: /sql
+      volumes:
+        - name: schema
+          configMap:
+            name: db-schema-sql

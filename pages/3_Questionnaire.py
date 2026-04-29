@@ -6,6 +6,43 @@
 import streamlit as st
 import pandas as pd
 from database.connection import get_connection
+from src.services.scoring import QuestionScore, compute_category_total
+from ui.session_controls import render_logout_button
+
+
+def load_questions(conn):
+    """
+    Load questionnaire rows while remaining compatible with databases
+    that do not yet have the questions.is_reversed column.
+    """
+
+    schema_cursor = conn.cursor()
+    schema_cursor.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'questions'
+              AND column_name = 'is_reversed'
+        )
+        """
+    )
+    has_is_reversed = schema_cursor.fetchone()[0]
+    schema_cursor.close()
+
+    reversed_column_sql = "q.is_reversed" if has_is_reversed else "FALSE AS is_reversed"
+
+    df = pd.read_sql(
+        f"""
+        SELECT q.question_id, q.question_text, {reversed_column_sql},
+               c.category_name, c.category_id
+        FROM questions q
+        JOIN categories c ON q.category_id = c.category_id
+        ORDER BY c.category_name, q.question_id
+        """,
+        conn,
+    )
+    return df, has_is_reversed
 
 # -------------------------------------------------------------
 # SESSION CHECK
@@ -18,6 +55,7 @@ user_id = st.session_state.get("user_id")
 username = st.session_state.get("username")
 
 st.title("📝 Mental Wellness Questionnaire")
+render_logout_button()
 
 # -------------------------------------------------------------
 # DATABASE CONNECTION
@@ -33,17 +71,16 @@ cursor = conn.cursor()
 # -------------------------------------------------------------
 # LOAD QUESTIONS
 # -------------------------------------------------------------
-df = pd.read_sql("""
-    SELECT q.question_id, q.question_text, q.is_reversed,
-           c.category_name, c.category_id
-    FROM questions q
-    JOIN categories c ON q.category_id = c.category_id
-    ORDER BY c.category_name, q.question_id
-""", conn)
+df, has_is_reversed = load_questions(conn)
 
 if df.empty:
     st.error("❌ No questions found in the database.")
     st.stop()
+
+if not has_is_reversed:
+    st.info("Reverse-scored question metadata is missing in this database, so default scoring is being used for now.")
+
+st.caption(f"Please answer all {len(df)} questions and let us know how you are feeling before you submit.")
 
 # -------------------------------------------------------------
 # RESPONSE SCALE
@@ -138,14 +175,15 @@ if st.button("✅ Submit Assessment"):
     for category in df["category_name"].unique():
 
         category_df = df[df["category_name"] == category]
-        total_score = 0
-        for _, row in category_df.iterrows():
-            raw_value = responses.get(row["question_id"], 0)
-            if row["is_reversed"]:
-                score_value = 3 - raw_value
-            else:
-                score_value = raw_value
-            total_score += score_value
+        category_rows = [
+            QuestionScore(
+                question_id=int(row["question_id"]),
+                category_name=str(row["category_name"]),
+                is_reversed=bool(row["is_reversed"]),
+            )
+            for _, row in category_df.iterrows()
+        ]
+        total_score = compute_category_total(category_rows, responses)
 
         # Get category_id
         cursor.execute(
@@ -160,6 +198,10 @@ if st.button("✅ Submit Assessment"):
             cursor.execute("""
                 INSERT INTO scores (user_id, category_id, score_value, attempt_id)
                 VALUES (%s, %s, %s, %s)
+                ON CONFLICT (attempt_id, category_id)
+                DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    score_value = EXCLUDED.score_value
             """, (user_id, category_id, total_score, attempt_id))
 
     conn.commit()

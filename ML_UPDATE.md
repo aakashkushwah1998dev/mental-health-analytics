@@ -1,28 +1,18 @@
 # ML Learning Update
 
-`ML_UPDATE.md` is automatically rewritten by `scripts/train_model.py` on each training run.
+## Auto-Updated Training Snapshot
 
-## What Gets Auto-Updated
+- Model type: `PyTorchBinaryClassifier`
+- Saved model path: `D:\MyProject\GitHub\models\risk_model.pt`
+- Training rows: `10000`
+- Real database rows: `0`
+- External synthetic rows: `10000`
+- Accuracy: `0.9850`
+- Schema hash: `92dc2c56a3609af2bf77a8da831c75f799742a74d08a685764d4fea050365f8c`
 
-- Training timestamp (UTC)
-- Model path
-- Training row count
-- Accuracy (test split)
-- Cross-validation mean/std (5-fold)
-- Confusion matrix (test split)
-- Feature schema hash
+## Confusion Matrix
 
-## Additional Generated Artifacts
-
-- `models/feature_importances.csv`
-- `models/model_metadata.json`
-
-## Train Command
-
-```bash
-python scripts/train_model.py
+```text
+1220  9
+21  750
 ```
-
-## API Behavior if Model Missing
-
-`api/main.py` returns HTTP 503 with a clear error if `models/risk_model.pkl` is not present.

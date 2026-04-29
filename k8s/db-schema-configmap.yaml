@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: db-schema-sql
+  namespace: mental-health
+data:
+  001_initial_schema.sql: |
+    CREATE TABLE IF NOT EXISTS users (
+        user_id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        age INT,
+        gender TEXT,
+        country TEXT,
+        occupation TEXT,
+        date_of_birth DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS categories (
+        category_id SERIAL PRIMARY KEY,
+        category_name TEXT NOT NULL UNIQUE,
+        description TEXT
+    );
+    CREATE TABLE IF NOT EXISTS questions (
+        question_id SERIAL PRIMARY KEY,
+        category_id INTEGER REFERENCES categories(category_id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        is_reversed BOOLEAN DEFAULT FALSE
+    );
+    CREATE TABLE IF NOT EXISTS assessment_attempts (
+        attempt_id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+        attempt_number INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        mood_label TEXT
+    );
+    CREATE TABLE IF NOT EXISTS responses (
+        response_id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+        question_id INTEGER REFERENCES questions(question_id) ON DELETE CASCADE,
+        answer_value INTEGER NOT NULL,
+        response_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        attempt_id INT REFERENCES assessment_attempts(attempt_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS scores (
+        score_id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+        category_id INTEGER REFERENCES categories(category_id) ON DELETE CASCADE,
+        score_value INTEGER NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        attempt_id INT REFERENCES assessment_attempts(attempt_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS user_activity (
+        activity_id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(user_id) ON DELETE CASCADE,
+        login_count INT DEFAULT 0,
+        last_login TIMESTAMP,
+        total_assessments INT DEFAULT 0,
+        last_assessment TIMESTAMP
+    );
+    ALTER TABLE scores DROP CONSTRAINT IF EXISTS scores_attempt_id_category_id_key;
+    ALTER TABLE scores ADD CONSTRAINT scores_attempt_id_category_id_key UNIQUE (attempt_id, category_id);

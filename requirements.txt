@@ -4,5 +4,9 @@ numpy
 matplotlib
 psycopg2-binary
 openpyxl
-scikit-learn
 bcrypt
+fastapi
+uvicorn
+torch
+pytest
+scikit-learn

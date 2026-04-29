@@ -6,7 +6,12 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
+import os
+from urllib import error, request
 from database.connection import get_connection
+from src.config.settings import load_settings
+from ui.session_controls import render_logout_button
 
 # -------------------------------------------------------------
 # SESSION CHECK
@@ -19,6 +24,7 @@ user_id  = st.session_state.get("user_id")
 username = st.session_state.get("username")
 
 st.title("📊 Mental Wellness Dashboard")
+render_logout_button()
 st.info(
     "These scores support self-awareness only.\n"
     "This is not a medical diagnosis."
@@ -241,6 +247,77 @@ def get_recommendations(category: str, level: str, mood: str | None = None) -> l
     return level_recs
 
 
+def get_score_value(df_scores: pd.DataFrame, category_name: str) -> float:
+    match = df_scores.loc[df_scores["category_name"].str.upper() == category_name.upper(), "score_value"]
+    if match.empty:
+        return 0.0
+    return float(match.iloc[0])
+
+
+def fetch_ai_risk_prediction(
+    df_scores: pd.DataFrame,
+    latest_mood: str | None,
+    attempts: int,
+    trend_value: float,
+) -> tuple[dict | None, str | None]:
+    settings = load_settings()
+    api_url = settings.mental_health_api_url
+    payload = {
+        "phq9": get_score_value(df_scores, "PHQ9"),
+        "gad7": get_score_value(df_scores, "GAD7"),
+        "rosenberg": get_score_value(df_scores, "Rosenberg"),
+        "bigfive": get_score_value(df_scores, "BigFive"),
+        "mood": latest_mood or "Neutral",
+        "attempts": float(attempts),
+        "trend": float(trend_value),
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if settings.api_security.api_key:
+        headers["x-api-key"] = settings.api_security.api_key
+
+    http_request = request.Request(
+        api_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(http_request, timeout=5) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body), None
+    except error.HTTPError as exc:
+        try:
+            error_body = exc.read().decode("utf-8")
+        except Exception:
+            error_body = exc.reason
+        return None, f"API returned {exc.code}: {error_body}"
+    except Exception as exc:
+        return None, str(exc)
+
+
+def fetch_model_info() -> tuple[dict | None, str | None]:
+    settings = load_settings()
+    headers = {}
+    if settings.api_security.api_key:
+        headers["x-api-key"] = settings.api_security.api_key
+    http_request = request.Request(settings.mental_health_model_info_url, headers=headers, method="GET")
+
+    try:
+        with request.urlopen(http_request, timeout=5) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body), None
+    except error.HTTPError as exc:
+        try:
+            error_body = exc.read().decode("utf-8")
+        except Exception:
+            error_body = exc.reason
+        return None, f"Model info API returned {exc.code}: {error_body}"
+    except Exception as exc:
+        return None, str(exc)
+
+
 # =============================================================
 # CHECK IF USER HAS TAKEN ASSESSMENT
 # =============================================================
@@ -365,15 +442,25 @@ else:
     """, conn, params=(user_id,))
 
 trend_label = "Stable"
+trend_value = 0.0
 if len(df_attempt_totals) >= 2:
     previous_total = df_attempt_totals.iloc[-2]["total_score"]
     latest_total = df_attempt_totals.iloc[-1]["total_score"]
+    trend_value = float(latest_total - previous_total)
     if latest_total < previous_total:
         trend_label = "Improving"
     elif latest_total > previous_total:
         trend_label = "Declining"
     else:
         trend_label = "Stable"
+
+ai_prediction, ai_prediction_error = fetch_ai_risk_prediction(
+    df_scores=df_scores,
+    latest_mood=latest_mood,
+    attempts=total_assessments,
+    trend_value=trend_value,
+)
+model_info, model_info_error = fetch_model_info()
 
 # =============================================================
 # SUMMARY CARD
@@ -388,6 +475,82 @@ with col3:
     st.metric("Overall Risk Level", overall_risk)
 with col4:
     st.metric("Trend", trend_label)
+
+# =============================================================
+# AI RISK PREDICTION
+# =============================================================
+st.subheader("🤖 AI Risk Prediction")
+
+if ai_prediction:
+    prediction_probability = float(ai_prediction["risk_probability"]) * 100
+    prediction_level = ai_prediction["risk_level"]
+
+    pred_col1, pred_col2, pred_col3 = st.columns(3)
+    with pred_col1:
+        st.metric("Predicted Risk", prediction_level)
+    with pred_col2:
+        st.metric("Risk Probability", f"{prediction_probability:.1f}%")
+    with pred_col3:
+        st.metric("Mood Used", latest_mood or "Neutral")
+
+    st.caption(
+        "This prediction comes from the FastAPI ML service using your latest "
+        "assessment scores, mood, attempt count, and score trend."
+    )
+else:
+    st.warning("AI prediction is currently unavailable.")
+    if ai_prediction_error:
+        st.caption(ai_prediction_error)
+
+# =============================================================
+# ML MODEL STATUS
+# =============================================================
+st.subheader("🧪 ML Model Status")
+
+if model_info:
+    real_training_rows = int(model_info.get("real_training_rows") or 0)
+    total_training_rows = int(model_info.get("training_rows") or 0)
+    synthetic_training_rows = int(model_info.get("synthetic_training_rows") or 0)
+    used_synthetic_bootstrap = bool(model_info.get("used_synthetic_bootstrap"))
+
+    if used_synthetic_bootstrap or synthetic_training_rows > 0 or real_training_rows < 10:
+        model_quality_label = "Dev-quality"
+        model_quality_help = (
+            "This model is usable for local testing, but the training dataset is still too "
+            "small for production confidence."
+        )
+    else:
+        model_quality_label = "Real-data"
+        model_quality_help = (
+            "This model was trained on real assessment rows without synthetic bootstrap data."
+        )
+
+    model_col1, model_col2, model_col3, model_col4 = st.columns(4)
+    with model_col1:
+        st.metric("Model Type", model_info.get("model_type") or "Unknown")
+    with model_col2:
+        st.metric("Model Quality", model_quality_label)
+    with model_col3:
+        st.metric("Real Training Rows", real_training_rows)
+    with model_col4:
+        st.metric("Synthetic Rows", synthetic_training_rows)
+
+    st.caption(model_quality_help)
+
+    with st.expander("View model metadata"):
+        st.write(f"**Trained At:** {model_info.get('trained_at_utc') or 'Unknown'}")
+        st.write(f"**Schema Hash:** {model_info.get('schema_hash') or 'Unknown'}")
+        st.write(f"**Total Training Rows:** {total_training_rows}")
+        st.write(
+            f"**Synthetic Bootstrap Used:** {'Yes' if used_synthetic_bootstrap else 'No'}"
+        )
+        feature_columns = model_info.get("feature_columns") or []
+        if feature_columns:
+            st.write("**Features Used:** " + ", ".join(feature_columns))
+else:
+    st.warning("Model metadata is currently unavailable.")
+    if model_info_error:
+        st.caption(model_info_error)
 
 # =============================================================
 # SECTION 1 — SCORE TABLE

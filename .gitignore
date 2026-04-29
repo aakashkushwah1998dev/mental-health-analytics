@@ -13,6 +13,7 @@ build/
 
 # Virtual environment
 venv/
+.venv/
 env/
 .env
 
@@ -20,5 +21,10 @@ env/
 .DS_Store
 Thumbs.db
 
+# Local runtime files
+logs/
+.codex-tmp/
+
 # Data files (optional - remove if you want them tracked)
 data/*.xlsx
+data/generated/*.csv

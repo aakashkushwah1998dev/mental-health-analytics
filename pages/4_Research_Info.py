@@ -7,6 +7,58 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 from database.connection import get_connection
+from ui.session_controls import render_logout_button
+
+
+COUNTRY_OPTIONS = [
+    "India",
+    "United States",
+    "United Kingdom",
+    "Canada",
+    "Australia",
+    "Germany",
+    "France",
+    "Singapore",
+    "United Arab Emirates",
+    "Other",
+]
+
+OCCUPATION_OPTIONS = [
+    "Working for Others",
+    "Working for Self",
+    "Student",
+    "Homemaker",
+    "Seeking Work",
+    "Retired",
+    "Other",
+]
+
+
+def get_users_table_columns(conn) -> set[str]:
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_name = 'users'
+        """
+    )
+    columns = {row[0] for row in cursor.fetchall()}
+    cursor.close()
+    return columns
+
+
+def optional_user_column_expr(column_name: str, available_columns: set[str]) -> str:
+    if column_name in available_columns:
+        return column_name
+    return f"NULL AS {column_name}"
+
+
+def build_select_options(options: list[str], current_value) -> list[str]:
+    normalized_current = (str(current_value).strip() if pd.notnull(current_value) else "")
+    if normalized_current and normalized_current not in options:
+        return [normalized_current] + options
+    return options
 
 # -------------------------------------------------------------
 # SESSION CHECK
@@ -19,6 +71,7 @@ user_id = st.session_state.get("user_id")
 username = st.session_state.get("username")
 
 st.title("👤 User Profile & Research Info")
+render_logout_button()
 
 # -------------------------------------------------------------
 # DATABASE CONNECTION
@@ -32,11 +85,23 @@ if conn is None:
 # -------------------------------------------------------------
 # LOAD USER INFO
 # -------------------------------------------------------------
+user_columns = get_users_table_columns(conn)
+
 df_user = pd.read_sql("""
-    SELECT username, date_of_birth, gender, country, occupation, created_at
+    SELECT username,
+           {date_of_birth_expr},
+           {gender_expr},
+           {country_expr},
+           {occupation_expr},
+           created_at
     FROM users
     WHERE user_id = %s
-""", conn, params=(user_id,))
+""".format(
+    date_of_birth_expr=optional_user_column_expr("date_of_birth", user_columns),
+    gender_expr=optional_user_column_expr("gender", user_columns),
+    country_expr=optional_user_column_expr("country", user_columns),
+    occupation_expr=optional_user_column_expr("occupation", user_columns),
+), conn, params=(user_id,))
 
 if df_user.empty:
     st.error("User not found.")
@@ -91,12 +156,18 @@ if missing_fields:
         )
 
         country_input = (
-            st.text_input("Country")
+            st.selectbox(
+                "Country",
+                build_select_options(COUNTRY_OPTIONS, user_data["country"]),
+            )
             if "country" in missing_fields else user_data["country"]
         )
 
         occupation_input = (
-            st.text_input("Occupation")
+            st.selectbox(
+                "Occupation",
+                build_select_options(OCCUPATION_OPTIONS, user_data["occupation"]),
+            )
             if "occupation" in missing_fields else user_data["occupation"]
         )
 
@@ -105,16 +176,36 @@ if missing_fields:
         if submitted:
             try:
                 cursor = conn.cursor()
-                cursor.execute("""
+                update_fields = []
+                update_values = []
+
+                if "date_of_birth" in user_columns:
+                    update_fields.append("date_of_birth = %s")
+                    update_values.append(dob_input)
+                if "gender" in user_columns:
+                    update_fields.append("gender = %s")
+                    update_values.append(gender_input)
+                if "country" in user_columns:
+                    update_fields.append("country = %s")
+                    update_values.append(country_input)
+                if "occupation" in user_columns:
+                    update_fields.append("occupation = %s")
+                    update_values.append(occupation_input)
+
+                if not update_fields:
+                    st.error("Profile fields are not available in the current database schema.")
+                    cursor.close()
+                    st.stop()
+
+                update_values.append(user_id)
+                cursor.execute(f"""
                     UPDATE users
-                    SET date_of_birth = %s,
-                        gender = %s,
-                        country = %s,
-                        occupation = %s
+                    SET {", ".join(update_fields)}
                     WHERE user_id = %s
-                """, (dob_input, gender_input, country_input, occupation_input, user_id))
+                """, tuple(update_values))
 
                 conn.commit()
+                cursor.close()
                 st.success("✅ Profile updated successfully!")
                 st.rerun()
 

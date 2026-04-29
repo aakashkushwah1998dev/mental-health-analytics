@@ -6,6 +6,7 @@
 import streamlit as st
 import os
 import subprocess
+from ui.session_controls import render_logout_button
 
 
 def get_build_version() -> str:
@@ -53,6 +54,7 @@ if "username" not in st.session_state:
 # MAIN LANDING PAGE
 # -------------------------------------------------------------
 st.title("🧠 Mental Wellness System")
+render_logout_button()
 
 st.markdown("""
 Welcome to your **AI-powered Mental Wellness Platform** 💚
@@ -84,14 +86,6 @@ if not st.session_state.logged_in:
 else:
 
     st.success(f"Welcome back, **{st.session_state.username}** 👋")
-
-    # ------------------ LOGOUT BUTTON ------------------
-    if st.button("🚪 Logout"):
-        st.session_state.logged_in = False
-        st.session_state.user_id = None
-        st.session_state.username = None
-        st.success("Logged out successfully!")
-        st.switch_page("pages/1_Login.py")
 
     st.markdown("### 🚀 Go to Dashboard")
 

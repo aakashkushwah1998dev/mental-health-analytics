@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mental-health-config
+  namespace: mental-health
+data:
+  DB_HOST: aws-1-ap-southeast-2.pooler.supabase.com
+  DB_NAME: postgres
+  DB_USER: postgres.rbcfkbkmxbpetrucbwyg
+  DB_PORT: "6543"
+  MODEL_DIR: /app/models
+  MENTAL_HEALTH_API_URL: http://ml-api:8000/predict
+  MENTAL_HEALTH_MODEL_INFO_URL: http://ml-api:8000/model-info
+  USE_SYNTHETIC_TRAINING_DATA: "1"
+  SYNTHETIC_TRAINING_DATA_PATH: /app/data/generated/synthetic_assessments.csv

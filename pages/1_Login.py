@@ -12,11 +12,13 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from auth.auth_service import login_or_register
+from ui.session_controls import render_logout_button
 
 # -------------------------------------------------------------
 # PAGE UI
 # -------------------------------------------------------------
 st.title("🔐 Login / Register")
+render_logout_button()
 
 st.markdown("""
 Enter your username and password.  

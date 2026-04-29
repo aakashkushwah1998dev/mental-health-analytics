@@ -1,0 +1,18 @@
+{
+  "model_type": "PyTorchBinaryClassifier",
+  "trained_at_utc": "2026-04-29 10:29:01 UTC",
+  "model_path": "D:\\MyProject\\GitHub\\models\\risk_model.pt",
+  "training_rows": 10000,
+  "real_training_rows": 0,
+  "synthetic_training_rows": 10000,
+  "feature_columns": [
+    "phq9",
+    "gad7",
+    "rosenberg",
+    "bigfive",
+    "mood",
+    "attempts",
+    "trend"
+  ],
+  "schema_hash": "92dc2c56a3609af2bf77a8da831c75f799742a74d08a685764d4fea050365f8c"
+}

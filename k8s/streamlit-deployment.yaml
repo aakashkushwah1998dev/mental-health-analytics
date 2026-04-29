@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamlit-app
+  namespace: mental-health
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: streamlit-app
+  template:
+    metadata:
+      labels:
+        app: streamlit-app
+    spec:
+      containers:
+        - name: streamlit-app
+          image: ghcr.io/owner/mental-health-streamlit:latest
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: mental-health-config
+            - secretRef:
+                name: mental-health-secrets
