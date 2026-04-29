@@ -55,6 +55,7 @@ Automated tests live in `tests/test_scoring.py`.
 ## Database
 - Development bootstrap SQL: `01_database_setup.sql`
 - Production migration: `database/migrations/001_initial_schema.sql`
+- Supabase quick-fix SQL (upsert constraint): `database/supabase_setup.sql`
 
 The production migration removes destructive reset behavior and keeps the schema idempotent.
 

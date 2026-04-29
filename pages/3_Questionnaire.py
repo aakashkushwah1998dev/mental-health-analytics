@@ -195,14 +195,25 @@ if st.button("✅ Submit Assessment"):
 
         if result:
             category_id = result[0]
-            cursor.execute("""
-                INSERT INTO scores (user_id, category_id, score_value, attempt_id)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (attempt_id, category_id)
-                DO UPDATE SET
-                    user_id = EXCLUDED.user_id,
-                    score_value = EXCLUDED.score_value
-            """, (user_id, category_id, total_score, attempt_id))
+            # Avoid relying on a UNIQUE constraint for ON CONFLICT since some
+            # Supabase databases may not have it applied yet.
+            cursor.execute(
+                """
+                UPDATE scores
+                SET score_value = %s,
+                    user_id = %s
+                WHERE attempt_id = %s AND category_id = %s
+                """,
+                (total_score, user_id, attempt_id, category_id),
+            )
+            if cursor.rowcount == 0:
+                cursor.execute(
+                    """
+                    INSERT INTO scores (user_id, category_id, score_value, attempt_id)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (user_id, category_id, total_score, attempt_id),
+                )
 
     conn.commit()
     cursor.close()
