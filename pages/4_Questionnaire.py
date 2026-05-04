@@ -220,7 +220,7 @@ if st.button("✅ Submit Assessment"):
     conn.close()
 
     st.success("✅ Assessment submitted successfully!")
-    st.switch_page("pages/2_Dashboard.py")
+    st.switch_page("pages/3_Dashboard.py")
 
 # -------------------------------------------------------------
 # FOOTER

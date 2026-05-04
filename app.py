@@ -90,7 +90,7 @@ else:
     st.markdown("### 🚀 Go to Dashboard")
 
     if st.button("📊 Open Dashboard"):
-        st.switch_page("pages/2_Dashboard.py")
+        st.switch_page("pages/3_Dashboard.py")
 
     st.markdown("---")
 
@@ -100,11 +100,11 @@ else:
 
     with col1:
         if st.button("📝 Take Assessment"):
-            st.switch_page("pages/3_Questionnaire.py")
+            st.switch_page("pages/4_Questionnaire.py")
 
     with col2:
         if st.button("👤 View Profile"):
-            st.switch_page("pages/4_Research_Info.py")
+            st.switch_page("pages/2_Research_Info.py")
 
 # -------------------------------------------------------------
 # FOOTER

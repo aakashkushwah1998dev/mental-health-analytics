@@ -9,9 +9,9 @@ OUTPUT_PATH = PROJECT_ROOT / "docs" / "book" / "index.html"
 TARGET_FILES = [
     "app.py",
     "pages/1_Login.py",
-    "pages/2_Dashboard.py",
-    "pages/3_Questionnaire.py",
-    "pages/4_Research_Info.py",
+    "pages/2_Research_Info.py",
+    "pages/3_Dashboard.py",
+    "pages/4_Questionnaire.py",
     "auth/auth_service.py",
     "database/connection.py",
     "src/config/settings.py",

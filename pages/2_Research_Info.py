@@ -260,10 +260,10 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("📊 Go to Dashboard"):
-        st.switch_page("pages/2_Dashboard.py")
+        st.switch_page("pages/3_Dashboard.py")
 
 with col2:
     if st.button("📝 Take Assessment"):
-        st.switch_page("pages/3_Questionnaire.py")
+        st.switch_page("pages/4_Questionnaire.py")
 
 st.caption("Built with ❤️ by Aakash Kushwah")

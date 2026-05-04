@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS users (
     user_id SERIAL PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
+    user_code TEXT UNIQUE,
     age INT,
     gender TEXT,
     country TEXT,
@@ -71,3 +72,11 @@ DROP CONSTRAINT IF EXISTS scores_attempt_id_category_id_key;
 
 ALTER TABLE scores
 ADD CONSTRAINT scores_attempt_id_category_id_key UNIQUE (attempt_id, category_id);
+
+UPDATE users
+SET user_code = 'USR' || LPAD(user_id::text, 6, '0')
+WHERE user_code IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_scores_user_attempt ON scores (user_id, attempt_id);
+CREATE INDEX IF NOT EXISTS idx_attempts_user_created_at ON assessment_attempts (user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_responses_user_attempt ON responses (user_id, attempt_id);

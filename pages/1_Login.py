@@ -48,7 +48,7 @@ if st.button("Continue →"):
                 time.sleep(1)
 
             st.success("✅ Login successful! Redirecting...")
-            st.switch_page("pages/2_Dashboard.py")
+            st.switch_page("pages/3_Dashboard.py")
 
         elif result == "register_success":
 
@@ -56,7 +56,7 @@ if st.button("Continue →"):
                 time.sleep(1)
 
             st.success("🎉 Account created! Redirecting...")
-            st.switch_page("pages/2_Dashboard.py")
+            st.switch_page("pages/3_Dashboard.py")
 
         elif result == "login_failed":
             st.error("❌ Incorrect password. Please try again.")

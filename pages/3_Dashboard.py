@@ -8,9 +8,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import os
+from pathlib import Path
 from urllib import error, request
+import torch
 from database.connection import get_connection
 from src.config.settings import load_settings
+from src.ml.features import FEATURE_COLUMNS, MOOD_ENCODING
+from src.ml.model import RiskPredictionModel
 from ui.session_controls import render_logout_button
 
 # -------------------------------------------------------------
@@ -254,6 +258,110 @@ def get_score_value(df_scores: pd.DataFrame, category_name: str) -> float:
     return float(match.iloc[0])
 
 
+def resolve_local_model_path(settings) -> Path | None:
+    project_root = Path(__file__).resolve().parents[1]
+    candidates = []
+    if settings.model_path:
+        candidates.append(Path(settings.model_path))
+    if settings.model_dir:
+        candidates.append(Path(settings.model_dir) / "risk_model.pt")
+    candidates.append(project_root / "models" / "risk_model.pt")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def resolve_local_metadata_path(settings) -> Path | None:
+    project_root = Path(__file__).resolve().parents[1]
+    candidates = []
+    if settings.model_path:
+        candidates.append(Path(settings.model_path).with_name("model_metadata.json"))
+    if settings.model_dir:
+        candidates.append(Path(settings.model_dir) / "model_metadata.json")
+    candidates.append(project_root / "models" / "model_metadata.json")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@st.cache_resource(show_spinner=False)
+def load_local_risk_model(model_path: str):
+    checkpoint = torch.load(model_path, map_location="cpu")
+    input_dim = int(checkpoint["input_dim"])
+    local_model = RiskPredictionModel(input_dim=input_dim)
+    local_model.load_state_dict(checkpoint["model_state_dict"])
+    local_model.eval()
+    return local_model
+
+
+def fetch_local_ai_risk_prediction(payload: dict) -> tuple[dict | None, str | None]:
+    settings = load_settings()
+    mood_value = MOOD_ENCODING.get(str(payload["mood"]))
+    if mood_value is None:
+        return None, "Unsupported mood for local prediction fallback."
+
+    model_path = resolve_local_model_path(settings)
+    metadata_path = resolve_local_metadata_path(settings)
+    if model_path is None:
+        return None, "Local model file is missing."
+
+    feature_columns = FEATURE_COLUMNS
+    if metadata_path and metadata_path.exists():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            feature_columns = metadata.get("feature_columns") or FEATURE_COLUMNS
+        except Exception:
+            feature_columns = FEATURE_COLUMNS
+
+    feature_map = {
+        "phq9": float(payload["phq9"]),
+        "gad7": float(payload["gad7"]),
+        "rosenberg": float(payload["rosenberg"]),
+        "bigfive": float(payload["bigfive"]),
+        "mood": float(mood_value),
+        "attempts": float(payload["attempts"]),
+        "trend": float(payload["trend"]),
+    }
+    features = pd.DataFrame([[feature_map[column] for column in feature_columns]], columns=feature_columns)
+    feature_tensor = torch.tensor(features.values, dtype=torch.float32)
+
+    local_model = load_local_risk_model(str(model_path))
+    with torch.no_grad():
+        logits = local_model(feature_tensor)
+        risk_probability = float(torch.sigmoid(logits).item())
+
+    if risk_probability < 0.4:
+        risk_level = "Low"
+    elif risk_probability <= 0.7:
+        risk_level = "Moderate"
+    else:
+        risk_level = "High"
+
+    return {
+        "risk_probability": risk_probability,
+        "risk_level": risk_level,
+        "_source": "Local model fallback",
+    }, None
+
+
+def fetch_local_model_info() -> tuple[dict | None, str | None]:
+    settings = load_settings()
+    metadata_path = resolve_local_metadata_path(settings)
+    if metadata_path is None:
+        return None, "Local model metadata file is missing."
+
+    try:
+        model_info = json.loads(metadata_path.read_text(encoding="utf-8"))
+        model_info["_source"] = "Local metadata fallback"
+        return model_info, None
+    except Exception as exc:
+        return None, f"Unable to read local model metadata: {exc}"
+
+
 def fetch_ai_risk_prediction(
     df_scores: pd.DataFrame,
     latest_mood: str | None,
@@ -286,15 +394,29 @@ def fetch_ai_risk_prediction(
     try:
         with request.urlopen(http_request, timeout=5) as response:
             body = response.read().decode("utf-8")
-            return json.loads(body), None
+            response_payload = json.loads(body)
+            response_payload["_source"] = "FastAPI service"
+            return response_payload, None
     except error.HTTPError as exc:
         try:
             error_body = exc.read().decode("utf-8")
         except Exception:
             error_body = exc.reason
+        local_prediction, local_error = fetch_local_ai_risk_prediction(payload)
+        if local_prediction:
+            local_prediction["_source_detail"] = (
+                f"FastAPI returned {exc.code}; the dashboard used the saved local model instead."
+            )
+            return local_prediction, None
         return None, f"API returned {exc.code}: {error_body}"
     except Exception as exc:
-        return None, str(exc)
+        local_prediction, local_error = fetch_local_ai_risk_prediction(payload)
+        if local_prediction:
+            local_prediction["_source_detail"] = (
+                f"FastAPI is unreachable ({exc}); the dashboard used the saved local model instead."
+            )
+            return local_prediction, None
+        return None, local_error or str(exc)
 
 
 def fetch_model_info() -> tuple[dict | None, str | None]:
@@ -307,15 +429,29 @@ def fetch_model_info() -> tuple[dict | None, str | None]:
     try:
         with request.urlopen(http_request, timeout=5) as response:
             body = response.read().decode("utf-8")
-            return json.loads(body), None
+            model_info = json.loads(body)
+            model_info["_source"] = "FastAPI service"
+            return model_info, None
     except error.HTTPError as exc:
         try:
             error_body = exc.read().decode("utf-8")
         except Exception:
             error_body = exc.reason
+        local_model_info, local_error = fetch_local_model_info()
+        if local_model_info:
+            local_model_info["_source_detail"] = (
+                f"FastAPI model info returned {exc.code}; the dashboard used saved local metadata instead."
+            )
+            return local_model_info, None
         return None, f"Model info API returned {exc.code}: {error_body}"
     except Exception as exc:
-        return None, str(exc)
+        local_model_info, local_error = fetch_local_model_info()
+        if local_model_info:
+            local_model_info["_source_detail"] = (
+                f"FastAPI model info is unreachable ({exc}); the dashboard used saved local metadata instead."
+            )
+            return local_model_info, None
+        return None, local_error or str(exc)
 
 
 # =============================================================
@@ -334,7 +470,7 @@ if response_count == 0:
     st.subheader(f"Welcome, {username} 👋")
     st.info("You haven't taken the assessment yet. Let's get started!")
     if st.button("📝 Start Assessment"):
-        st.switch_page("pages/3_Questionnaire.py")
+        st.switch_page("pages/4_Questionnaire.py")
     st.stop()
 
 # -------------------------------------------------------------
@@ -494,7 +630,8 @@ if ai_prediction:
         st.metric("Mood Used", latest_mood or "Neutral")
 
     st.caption(
-        "This prediction comes from the FastAPI ML service using your latest "
+        ai_prediction.get("_source_detail")
+        or "This prediction comes from the configured ML model using your latest "
         "assessment scores, mood, attempt count, and score trend."
     )
 else:
@@ -536,8 +673,11 @@ if model_info:
         st.metric("Synthetic Rows", synthetic_training_rows)
 
     st.caption(model_quality_help)
+    if model_info.get("_source_detail"):
+        st.caption(model_info["_source_detail"])
 
     with st.expander("View model metadata"):
+        st.write(f"**Metadata Source:** {model_info.get('_source') or 'Unknown'}")
         st.write(f"**Trained At:** {model_info.get('trained_at_utc') or 'Unknown'}")
         st.write(f"**Schema Hash:** {model_info.get('schema_hash') or 'Unknown'}")
         st.write(f"**Total Training Rows:** {total_training_rows}")
@@ -661,11 +801,11 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("🔄 Retake Assessment"):
-        st.switch_page("pages/3_Questionnaire.py")
+        st.switch_page("pages/4_Questionnaire.py")
 
 with col2:
     if st.button("👤 View Profile"):
-        st.switch_page("pages/4_Research_Info.py")
+        st.switch_page("pages/2_Research_Info.py")
 
 conn.close()
 
